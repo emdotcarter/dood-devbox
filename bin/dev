@@ -86,6 +86,13 @@ detect_ssh_sock() {
 }
 
 ensure_env() {
+  if [[ -z "${HOST_UID:-}" ]]; then
+    export HOST_UID="$(id -u)"
+  fi
+  if [[ -z "${HOST_GID:-}" ]]; then
+    export HOST_GID="$(id -g)"
+  fi
+
   if docker_sock=$(detect_docker_sock); then
     export DEVBOX_DOCKER_SOCK="$docker_sock"
   else

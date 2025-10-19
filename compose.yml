@@ -16,6 +16,7 @@ services:
     environment:
       SSH_AUTH_SOCK: /ssh-agent
       GIT_SSH_COMMAND: ssh -o StrictHostKeyChecking=accept-new
+      DOCKER_HOST: unix:///var/run/docker.sock
     working_dir: /workspace
     tty: true
     stdin_open: true

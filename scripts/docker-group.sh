@@ -29,4 +29,8 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
   grep -q "github.com" "$KN" 2>/dev/null || ssh-keyscan -H github.com >> "$KN" 2>/dev/null || true
 fi
 
-exec "$@"
+if command -v sudo >/dev/null 2>&1; then
+  exec sudo -E -u "$CURRENT_USER" -- "$@"
+else
+  exec "$@"
+fi
