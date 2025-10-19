@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+ENV_FILE=.env
+[[ -f $ENV_FILE ]] || {
+  echo "Creating .env from template…"; \
+  cat > .env <<'EOF'
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+USERNAME=${USER}
+DOCKER_DEFAULT_PLATFORM=linux/arm64
+EOF
+}
+
+# Export only our custom env vars (avoid readonly builtins like UID)
+export $(grep -E '^(HOST_UID|HOST_GID|USERNAME|DOCKER_DEFAULT_PLATFORM)=' .env | xargs)
+
+compose() { docker compose "$@"; }
+
+case "${1:-shell}" in
+  build)
+    compose build ;;
+  up)
+    docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
+    compose up -d ;;
+  down)
+    compose down ;;
+  shell|sh|bash)
+    docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
+    compose run --rm dev bash ;;
+  amd64)
+    docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
+    DOCKER_DEFAULT_PLATFORM=linux/amd64 compose run --rm dev bash ;;
+  ps)
+    compose ps ;;
+  logs)
+    compose logs -f --tail=200 ;;
+  volume-path)
+    V=$(docker volume inspect dev-workspace -f '{{.Mountpoint}}' 2>/dev/null || true); \
+    echo "dev-workspace mountpoint: ${V:-<unknown>}" ;;
+  volume-create)
+    docker volume create dev-workspace >/dev/null && echo "Created dev-workspace" || echo "dev-workspace already exists" ;;
+  volume-rm)
+    read -r -p "This will delete the dev-workspace volume. Continue? [y/N] " ans; \
+    [[ "${ans:-N}" == "y" || "${ans:-N}" == "Y" ]] && docker volume rm -f dev-workspace || echo "Aborted" ;;
+  *)
+    compose "$@" ;;
+esac

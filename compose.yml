@@ -1,0 +1,28 @@
+services:
+  dev:
+    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HOST_UID: ${HOST_UID}
+        HOST_GID: ${HOST_GID}
+        USERNAME: ${USERNAME}
+    volumes:
+      - dev-workspace:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Optional: forward host SSH agent for private repos
+      - ${SSH_AUTH_SOCK:-/tmp/does-not-exist}:/ssh-agent:ro
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SSH_AUTH_SOCK: /ssh-agent
+    working_dir: /workspace
+    tty: true
+    stdin_open: true
+    user: "${HOST_UID}:${HOST_GID}"
+
+volumes:
+  dev-workspace:
+    # Named volume persists across container rebuilds/removals
+    # (Docker/OrbStack manages storage on the host)
+    driver: local
