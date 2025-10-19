@@ -1,16 +1,26 @@
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && \
+RUN set -eux; \
+    apt-get update; \
     apt-get install -y --no-install-recommends \
-      ca-certificates \
-      git \
-      openssh-client \
-      curl \
       bash \
+      ca-certificates \
+      curl \
+      git \
+      gnupg \
       less \
-      vim \
-      sudo && \
+      openssh-client \
+      sudo \
+      vim; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg; \
+    chmod a+r /etc/apt/keyrings/docker.gpg; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      docker-ce-cli \
+      docker-compose-plugin; \
     rm -rf /var/lib/apt/lists/*
 
 # Create (or reuse) a user with the same uid/gid as the host so the SSH socket perms work
@@ -48,5 +58,13 @@ RUN set -eux; \
     echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME}; \
     chmod 0440 /etc/sudoers.d/${USERNAME}
 
+RUN echo "${USERNAME}" > /etc/actual-user
+
+COPY scripts/docker-group.sh /usr/local/bin/devbox-entrypoint
+RUN chmod +x /usr/local/bin/devbox-entrypoint
+
 USER ${USERNAME}
 WORKDIR /workspace
+
+ENTRYPOINT ["devbox-entrypoint"]
+CMD ["sleep", "infinity"]

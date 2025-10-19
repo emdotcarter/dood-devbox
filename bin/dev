@@ -17,21 +17,105 @@ EOF
 
 svc="devbox"
 
+user_name="${USER:-$(id -un)}"
+
+detect_docker_sock() {
+  local docker_host_path=""
+  if [[ "${DOCKER_HOST:-}" == unix://* ]]; then
+    docker_host_path="${DOCKER_HOST#unix://}"
+  elif [[ -n "${DOCKER_HOST:-}" ]]; then
+    docker_host_path="${DOCKER_HOST}"
+  fi
+
+  local candidates=(
+    "${DEVBOX_DOCKER_SOCK:-}"
+    "${docker_host_path}"
+    "/Users/${user_name}/.orbstack/run/docker.sock"
+    "/Users/Shared/OrbStack/docker.sock"
+    "/var/run/docker.sock"
+  )
+  local sock
+  for sock in "${candidates[@]}"; do
+    if [[ -n "$sock" && -S "$sock" ]]; then
+      echo "$sock"
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_working_ssh_sock() {
+  local sock="$1"
+  [[ -S "$sock" ]] || return 1
+
+  if ! command -v ssh-add >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local output status=0
+  output=$(SSH_AUTH_SOCK="$sock" ssh-add -L 2>&1) || status=$?
+  if [[ $status -eq 0 ]]; then
+    return 0
+  fi
+  if [[ $status -eq 1 && "$output" == *"The agent has no identities."* ]]; then
+    return 0
+  fi
+  return 1
+}
+
+detect_ssh_sock() {
+  local candidates=(
+    "${DEVBOX_SSH_AUTH_SOCK:-}"
+    "${SSH_AUTH_SOCK:-}"
+    "/Users/${user_name}/.orbstack/run/ssh.sock"
+    "/Users/${user_name}/.orbstack/run/ssh-agent.sock"
+    "/Users/Shared/OrbStack/ssh-agent.sock"
+    "/run/host-services/ssh-auth.sock"
+  )
+  local sock
+  for sock in "${candidates[@]}"; do
+    if [[ -n "$sock" && is_working_ssh_sock "$sock" ]]; then
+      echo "$sock"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ensure_env() {
+  if docker_sock=$(detect_docker_sock); then
+    export DEVBOX_DOCKER_SOCK="$docker_sock"
+  else
+    echo "[warn] Could not find a Docker socket. Set DEVBOX_DOCKER_SOCK to the host socket path." >&2
+  fi
+
+  if ssh_sock=$(detect_ssh_sock); then
+    export DEVBOX_SSH_AUTH_SOCK="$ssh_sock"
+  else
+    echo "[warn] Could not find an SSH agent socket. Set DEVBOX_SSH_AUTH_SOCK to forward SSH keys." >&2
+  fi
+}
+
 cmd="${1:-}"
 case "$cmd" in
   up)
+    ensure_env
     docker compose up -d --build
     ;;
   down)
+    ensure_env
     docker compose down
     ;;
   shell)
+    ensure_env
     docker compose exec "$svc" bash || docker compose run --rm "$svc" bash
     ;;
   logs)
+    ensure_env
     docker compose logs -f "$svc"
     ;;
   doctor)
+    ensure_env
     echo "==> Checking container is up..."
     docker compose up -d >/dev/null
     echo "==> SSH_AUTH_SOCK inside container:"
@@ -40,6 +124,8 @@ case "$cmd" in
     docker compose exec "$svc" bash -lc 'ssh-add -L || true'
     echo "==> GitHub reachability test (ssh -T git@github.com):"
     docker compose exec "$svc" bash -lc 'ssh -T git@github.com || true'
+    echo "==> docker info (should reach host Docker daemon):"
+    docker compose exec "$svc" bash -lc 'if docker info >/dev/null 2>&1; then echo "docker info succeeded"; else echo "docker info failed" >&2; exit 1; fi'
     echo "If you saw keys from ssh-add -L and a GitHub greeting, you are good."
     ;;
   ""|-h|--help|help)
