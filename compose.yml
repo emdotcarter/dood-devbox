@@ -9,11 +9,11 @@ services:
         HOST_UID: ${HOST_UID}
         HOST_GID: ${HOST_GID}
         USERNAME: ${USERNAME}
+    command: ["sleep", "infinity"]
     volumes:
       - dev-workspace:/workspace
       - /var/run/docker.sock:/var/run/docker.sock
-      # Optional: forward host SSH agent for private repos
-      - ${SSH_AUTH_SOCK:-/tmp/does-not-exist}:/ssh-agent:ro
+      - ${SSH_AUTH_SOCK:-/tmp/does-not-exist}:/ssh-agent
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
       SSH_AUTH_SOCK: /ssh-agent
@@ -24,6 +24,4 @@ services:
 
 volumes:
   dev-workspace:
-    # Named volume persists across container rebuilds/removals
-    # (Docker/OrbStack manages storage on the host)
     driver: local
