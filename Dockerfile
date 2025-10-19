@@ -10,7 +10,9 @@ RUN apt-get update && \
       bash \
       less \
       vim \
-      sudo && \
+      sudo \
+      docker.io \
+      docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
 # Create (or reuse) a user with the same uid/gid as the host so the SSH socket perms work
@@ -48,5 +50,13 @@ RUN set -eux; \
     echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME}; \
     chmod 0440 /etc/sudoers.d/${USERNAME}
 
+RUN echo "${USERNAME}" > /etc/actual-user
+
+COPY scripts/docker-group.sh /usr/local/bin/devbox-entrypoint
+RUN chmod +x /usr/local/bin/devbox-entrypoint
+
 USER ${USERNAME}
 WORKDIR /workspace
+
+ENTRYPOINT ["devbox-entrypoint"]
+CMD ["sleep", "infinity"]
