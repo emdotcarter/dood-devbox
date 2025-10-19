@@ -1,50 +1,52 @@
-# Base: minimal, fast; works on Apple Silicon and Intel
 FROM ubuntu:24.04
 
-ARG USERNAME=dev
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      git \
+      openssh-client \
+      curl \
+      bash \
+      less \
+      vim \
+      sudo && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create (or reuse) a user with the same uid/gid as the host so the SSH socket perms work
 ARG HOST_UID=1000
 ARG HOST_GID=1000
+ARG USERNAME=vscode
+ARG HOME_DIR=/home/${USERNAME}
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    DOCKER_BUILDKIT=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git bash zsh sudo build-essential pkg-config \
-    openssh-client jq unzip less vim \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN install -m 0755 -d /etc/apt/keyrings \
- && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
- && chmod a+r /etc/apt/keyrings/docker.asc \
- && . /etc/os-release \
- && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME} stable" \
-    > /etc/apt/sources.list.d/docker.list \
- && apt-get update && apt-get install -y --no-install-recommends \
-    docker-ce-cli docker-compose-plugin \
- && rm -rf /var/lib/apt/lists/*
-
+# 1) Ensure there is a group with HOST_GID and call it ${USERNAME}
+#    - If a group with HOST_GID already exists, rename it to ${USERNAME} (if needed)
 RUN set -eux; \
-    if getent group "${HOST_GID}" >/dev/null 2>&1; then \
-      TARGET_GRP_NAME="$(getent group "${HOST_GID}" | cut -d: -f1)"; \
+    if getent group "${HOST_GID}" >/dev/null; then \
+      existing_group="$(getent group "${HOST_GID}" | cut -d: -f1)"; \
+      if [ "${existing_group}" != "${USERNAME}" ]; then \
+        groupmod -n "${USERNAME}" "${existing_group}"; \
+      fi; \
     else \
-      TARGET_GRP_NAME="${USERNAME}"; \
-      groupadd -g "${HOST_GID}" "$TARGET_GRP_NAME"; \
-    fi; \
-    if getent passwd "${HOST_UID}" >/dev/null 2>&1; then \
-      TARGET_USER_NAME="$(getent passwd "${HOST_UID}" | cut -d: -f1)"; \
-      usermod -g "${HOST_GID}" "$TARGET_USER_NAME"; \
+      groupadd -g "${HOST_GID}" "${USERNAME}"; \
+    fi
+
+# 2) Ensure there is a user with HOST_UID named ${USERNAME}
+#    - If a user with HOST_UID exists under a different name, rename & move its home
+#    - Otherwise create a fresh user
+RUN set -eux; \
+    if getent passwd "${HOST_UID}" >/dev/null; then \
+      existing_user="$(getent passwd "${HOST_UID}" | cut -d: -f1)"; \
+      if [ "${existing_user}" != "${USERNAME}" ]; then \
+        usermod -l "${USERNAME}" "${existing_user}"; \
+        usermod -d "/home/${USERNAME}" -m "${USERNAME}"; \
+      fi; \
+      usermod -s /bin/bash -g "${HOST_GID}" "${USERNAME}"; \
     else \
-      TARGET_USER_NAME="${USERNAME}"; \
-      useradd -m -s /bin/bash -u "${HOST_UID}" -g "${HOST_GID}" "$TARGET_USER_NAME"; \
+      useradd -m -s /bin/bash -u "${HOST_UID}" -g "${HOST_GID}" "${USERNAME}"; \
     fi; \
-    echo "$TARGET_USER_NAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$TARGET_USER_NAME"; \
-    echo "$TARGET_USER_NAME" > /etc/actual-user
+    echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME}; \
+    chmod 0440 /etc/sudoers.d/${USERNAME}
 
-COPY scripts/docker-group.sh /usr/local/bin/docker-group.sh
-RUN chmod +x /usr/local/bin/docker-group.sh
-
-USER ${HOST_UID}:${HOST_GID}
+USER ${USERNAME}
 WORKDIR /workspace
-
-ENTRYPOINT ["/usr/local/bin/docker-group.sh"]
-CMD ["bash"]

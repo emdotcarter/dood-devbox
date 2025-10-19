@@ -1,91 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
-ENV_FILE=.env
-[[ -f $ENV_FILE ]] || {
-  echo "Creating .env from template…"; \
-  cat > .env <<'EOF'
-HOST_UID=$(id -u)
-HOST_GID=$(id -g)
-USERNAME=${USER}
-DOCKER_DEFAULT_PLATFORM=linux/arm64
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: bin/dev [up|down|shell|doctor|logs]
+
+  up      Build & start devbox
+  down    Stop devbox
+  shell   Shell into devbox container
+  doctor  Check SSH agent forwarding & GitHub access
+  logs    Show container logs
 EOF
 }
 
-# Load .env safely (exporting variables) without word-splitting issues
-set -a
-. ./.env
-set +a
+svc="devbox"
 
-compose() { docker compose "$@"; }
-
-ensure_host_agent() {
-  if [[ -z "${SSH_AUTH_SOCK:-}" || ! -S "${SSH_AUTH_SOCK:-/dev/null}" ]]; then
-    export DEV_SSH_SOCK="${TMPDIR:-/tmp}/devcontainer-ssh-agent.sock"
-    [[ -S "$DEV_SSH_SOCK" ]] && rm -f "$DEV_SSH_SOCK" || true
-    eval "$(ssh-agent -a "$DEV_SSH_SOCK")" >/dev/null
-    export SSH_AUTH_SOCK="$DEV_SSH_SOCK"
-    echo "[info] Started dedicated host ssh-agent at $SSH_AUTH_SOCK"
-  fi
-
-  if ! ssh-add -l >/dev/null 2>&1; then
-    if [[ -f "$HOME/.ssh/id_ed25519" ]]; then
-      ssh-add "$HOME/.ssh/id_ed25519" >/dev/null 2>&1 || true
-      echo "[info] Auto-added ~/.ssh/id_ed25519 to agent"
-    fi
-  fi
-}
-
-warn_no_agent() {
-  if [[ -z "${SSH_AUTH_SOCK:-}" || ! -S "${SSH_AUTH_SOCK}" ]]; then
-    echo "[warn] SSH_AUTH_SOCK not set to a socket; agent forwarding may be unavailable." >&2
-  fi
-}
-
-case "${1:-shell}" in
-  build)
-    compose build ;;
+cmd="${1:-}"
+case "$cmd" in
   up)
-    ensure_host_agent
-    docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
-    compose up -d ;;
-  down|stop)
-    compose down ;;
-  exec)
-    shift || true
-    RUN_CMD=""
-    if [[ "${1:-}" == "-c" ]]; then
-      shift
-      RUN_CMD="${1:-}"
-    fi
-    CID=$(docker compose ps -q dev || true)
-    if [[ -z "$CID" ]] || [[ "$(docker inspect -f '{{.State.Running}}' "$CID" 2>/dev/null || echo false)" != "true" ]]; then
-      echo "No running dev container. Starting it…";
-      ensure_host_agent
-      docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
-      compose up -d
-      CID=$(docker compose ps -q dev)
-    fi
-    if [[ -n "$RUN_CMD" ]]; then
-      docker exec -it "$CID" bash -lc "$RUN_CMD"
-    else
-      docker exec -it "$CID" bash
-    fi ;;
-  shell|sh|bash)
-    "$0" exec ;;
-  ps)
-    compose ps ;;
+    docker compose up -d --build
+    ;;
+  down)
+    docker compose down
+    ;;
+  shell)
+    docker compose exec "$svc" bash || docker compose run --rm "$svc" bash
+    ;;
   logs)
-    compose logs -f --tail=200 ;;
-  volume-path)
-    V=$(docker volume inspect dev-workspace -f '{{.Mountpoint}}' 2>/dev/null || true); echo "dev-workspace mountpoint: ${V:-<unknown>}" ;;
-  volume-create)
-    docker volume create dev-workspace >/dev/null && echo "Created dev-workspace" || echo "dev-workspace already exists" ;;
-  volume-rm)
-    read -r -p "This will delete the dev-workspace volume. Continue? [y/N] " ans; [[ "${ans:-N}" == "y" || "${ans:-N}" == "Y" ]] && docker volume rm -f dev-workspace || echo "Aborted" ;;
+    docker compose logs -f "$svc"
+    ;;
   doctor)
-    "$0" exec -c 'set -eux; echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-}"; ls -l /ssh-agent || true; SSH_AUTH_SOCK=/ssh-agent ssh-add -l || true; mkdir -p ~/.ssh && chmod 700 ~/.ssh; grep -q github.com ~/.ssh/known_hosts && echo known_hosts:ok || (ssh-keyscan -H github.com >> ~/.ssh/known_hosts); SSH_AUTH_SOCK=/ssh-agent ssh -T -vv git@github.com || true' ;;
+    echo "==> Checking container is up..."
+    docker compose up -d >/dev/null
+    echo "==> SSH_AUTH_SOCK inside container:"
+    docker compose exec "$svc" bash -lc 'echo "$SSH_AUTH_SOCK" && ls -l "$SSH_AUTH_SOCK"'
+    echo "==> ssh-add -L (should list your host keys):"
+    docker compose exec "$svc" bash -lc 'ssh-add -L || true'
+    echo "==> GitHub reachability test (ssh -T git@github.com):"
+    docker compose exec "$svc" bash -lc 'ssh -T git@github.com || true'
+    echo "If you saw keys from ssh-add -L and a GitHub greeting, you are good."
+    ;;
+  ""|-h|--help|help)
+    usage
+    ;;
   *)
-    compose "$@" ;;
+    echo "Unknown command: $cmd" >&2
+    usage
+    exit 2
+    ;;
 esac

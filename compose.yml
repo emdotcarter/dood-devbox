@@ -1,27 +1,20 @@
+name: devbox
+
 services:
-  dev:
-    container_name: devbox
-    env_file: .env
+  devbox:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        HOST_UID: ${HOST_UID}
-        HOST_GID: ${HOST_GID}
-        USERNAME: ${USERNAME}
-    command: ["sleep", "infinity"]
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
-      - dev-workspace:/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${SSH_AUTH_SOCK:-/tmp/does-not-exist}:/ssh-agent
+      - ./:/workspace:cached
+      - /run/host-services/ssh-auth.sock:/ssh-agent
     environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
       SSH_AUTH_SOCK: /ssh-agent
+      GIT_SSH_COMMAND: ssh -o StrictHostKeyChecking=accept-new
     working_dir: /workspace
     tty: true
     stdin_open: true
-    user: "${HOST_UID}:${HOST_GID}"
-
-volumes:
-  dev-workspace:
-    driver: local
