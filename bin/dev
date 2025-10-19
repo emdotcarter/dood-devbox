@@ -74,7 +74,10 @@ detect_ssh_sock() {
   )
   local sock
   for sock in "${candidates[@]}"; do
-    if [[ -n "$sock" && is_working_ssh_sock "$sock" ]]; then
+    if [[ -z "$sock" ]]; then
+      continue
+    fi
+    if is_working_ssh_sock "$sock"; then
       echo "$sock"
       return 0
     fi
@@ -123,7 +126,7 @@ case "$cmd" in
     echo "==> ssh-add -L (should list your host keys):"
     docker compose exec "$svc" bash -lc 'ssh-add -L || true'
     echo "==> GitHub reachability test (ssh -T git@github.com):"
-    docker compose exec "$svc" bash -lc 'ssh -T git@github.com || true'
+    docker compose exec "$svc" bash -lc 'ssh -o StrictHostKeyChecking=accept-new -T git@github.com || true'
     echo "==> docker info (should reach host Docker daemon):"
     docker compose exec "$svc" bash -lc 'if docker info >/dev/null 2>&1; then echo "docker info succeeded"; else echo "docker info failed" >&2; exit 1; fi'
     echo "If you saw keys from ssh-add -L and a GitHub greeting, you are good."
