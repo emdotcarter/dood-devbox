@@ -63,7 +63,7 @@ RUN echo "${USERNAME}" > /etc/actual-user
 COPY scripts/docker-group.sh /usr/local/bin/devbox-entrypoint
 RUN chmod +x /usr/local/bin/devbox-entrypoint
 
-USER ${USERNAME}
+USER root
 WORKDIR /workspace
 
 ENTRYPOINT ["devbox-entrypoint"]

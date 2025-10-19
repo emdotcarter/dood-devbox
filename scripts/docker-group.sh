@@ -2,8 +2,20 @@
 set -euo pipefail
 
 CURRENT_USER="$(id -un 2>/dev/null || true)"
-[[ -z "$CURRENT_USER" && -f /etc/actual-user ]] && CURRENT_USER="$(cat /etc/actual-user 2>/dev/null || true)"
+if [[ $(id -u) -eq 0 && -f /etc/actual-user ]]; then
+  CURRENT_USER="$(cat /etc/actual-user 2>/dev/null || true)"
+fi
 [[ -z "$CURRENT_USER" ]] && CURRENT_USER="dev"
+
+run_root() {
+  if [[ $(id -u) -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
 
 SOCK=/var/run/docker.sock
 if [[ -S "$SOCK" ]]; then
@@ -13,9 +25,9 @@ if [[ -S "$SOCK" ]]; then
       DOCKER_GRP_NAME="$(getent group "$SOCK_GID" | cut -d: -f1)"
     else
       DOCKER_GRP_NAME=docker
-      sudo groupadd -g "$SOCK_GID" "$DOCKER_GRP_NAME" 2>/dev/null || true
+      run_root groupadd -g "$SOCK_GID" "$DOCKER_GRP_NAME" 2>/dev/null || true
     fi
-    sudo usermod -aG "$DOCKER_GRP_NAME" "$CURRENT_USER" 2>/dev/null || true
+    run_root usermod -aG "$DOCKER_GRP_NAME" "$CURRENT_USER" 2>/dev/null || true
   fi
 fi
 
@@ -29,8 +41,8 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
   grep -q "github.com" "$KN" 2>/dev/null || ssh-keyscan -H github.com >> "$KN" 2>/dev/null || true
 fi
 
-if command -v sudo >/dev/null 2>&1; then
+if [[ $(id -u) -eq 0 ]]; then
   exec sudo -E -u "$CURRENT_USER" -- "$@"
-else
-  exec "$@"
 fi
+
+exec "$@"

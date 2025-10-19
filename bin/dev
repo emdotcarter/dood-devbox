@@ -66,10 +66,10 @@ is_working_ssh_sock() {
 detect_ssh_sock() {
   local candidates=(
     "${DEVBOX_SSH_AUTH_SOCK:-}"
-    "${SSH_AUTH_SOCK:-}"
     "/Users/${user_name}/.orbstack/run/ssh.sock"
     "/Users/${user_name}/.orbstack/run/ssh-agent.sock"
     "/Users/Shared/OrbStack/ssh-agent.sock"
+    "${SSH_AUTH_SOCK:-}"
     "/run/host-services/ssh-auth.sock"
   )
   local sock
