@@ -24,14 +24,32 @@ case "${1:-shell}" in
   up)
     docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
     compose up -d ;;
-  down)
+  down|stop)
     compose down ;;
+  exec)
+    # exec into the existing singleton container if running
+    CID=$(docker compose ps -q dev || true)
+    if [[ -n "${CID}" ]] && [[ "$(docker inspect -f '{{.State.Running}}' "${CID}")" == "true" ]]; then
+      docker exec -it "${CID}" bash
+    else
+      echo "No running dev container. Starting it…";
+      docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
+      compose up -d
+      CID=$(docker compose ps -q dev)
+      docker exec -it "${CID}" bash
+    fi ;;
   shell|sh|bash)
-    docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
-    compose run --rm dev bash ;;
+    # Back-compat alias for exec
+    "$0" exec ;;
   amd64)
-    docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
-    DOCKER_DEFAULT_PLATFORM=linux/amd64 compose run --rm dev bash ;;
+    # Start (if needed) with default platform; the daemon decides image arch on pull/build
+    CID=$(docker compose ps -q dev || true)
+    if [[ -z "${CID}" ]] || [[ "$(docker inspect -f '{{.State.Running}}' "${CID}" 2>/dev/null || echo false)" != "true" ]]; then
+      docker volume inspect dev-workspace >/dev/null 2>&1 || docker volume create dev-workspace >/dev/null
+      DOCKER_DEFAULT_PLATFORM=linux/amd64 compose up -d --build
+      CID=$(docker compose ps -q dev)
+    fi
+    docker exec -it "${CID}" bash ;;
   ps)
     compose ps ;;
   logs)

@@ -1,5 +1,6 @@
 services:
   dev:
+    container_name: devbox
     env_file: .env
     build:
       context: .
